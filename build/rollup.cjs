@@ -93330,11 +93330,12 @@ app.post('/api/test_post', async(req, res) => {
     let success= body.success;
    
     if(success) {
+        let data = { 'message': 'test_post success' };
         let [status, resp] = getSuccessResponse(data);
         res.status(status).json(resp);
     }
     else {
-        let reason = 'error-empty-sucess';
+        let reason = 'error-empty-success';
         let [status, resp] = getErrorResponse(400, reason);
         res.status(status).json(resp);
     }
@@ -93345,11 +93346,12 @@ app.post('/api/test_verify', verify(), async(req, res) => {
     let success= body.success;
    
     if(success) {
+        let data = { 'message': 'test_verify success' };
         let [status, resp] = getSuccessResponse(data);
         res.status(status).json(resp);
     }
     else {
-        let reason = 'error-empty-sucess';
+        let reason = 'error-empty-success';
         let [status, resp] = getErrorResponse(400, reason);
         res.status(status).json(resp);
     }
