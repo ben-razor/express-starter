@@ -1,8 +1,8 @@
 # ExpressJS Starter
 
-Starting point for creating ExpressJS server backends.
+Starting point for creating [ExpressJS](https://expressjs.com/) server backends.
 
-Uses rollup to create small builds for fast deployment.
+Uses [rollup.js](https://rollupjs.org/guide/en/) to create small builds for fast deployment.
 
 # Preparing a build for export
 
