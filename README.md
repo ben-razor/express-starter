@@ -1,6 +1,6 @@
 # ExpressJS Starter
 
-Starting point for creating [ExpressJS](https://expressjs.com/) server backends.
+Starting point for creating [ExpressJS](https://expressjs.com/) API backends.
 
 Uses [rollup.js](https://rollupjs.org/guide/en/) to create small builds for fast deployment.
 
