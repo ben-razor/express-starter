@@ -1,0 +1,40 @@
+{
+  "name": "@benrazor/ceramic-model-explorer-server",
+  "version": "1.0.0",
+  "description": "Ceramic Model Explorer Server",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon src/index.js",
+    "prod": "cd build; sudo NODE_ENV=production nodemon rollup.cjs",
+    "rollup": "rollup --config rollup.config.js && cd build; node rollup.cjs"
+  },
+  "author": "Ben Razor",
+  "license": "ISC",
+  "dependencies": {
+    "@ceramicnetwork/3id-did-resolver": "^1.4.5",
+    "@ceramicnetwork/http-client": "^1.4.1",
+    "better-sqlite3": "^7.4.4",
+    "cors": "^2.8.5",
+    "dids": "^2.4.0",
+    "dotenv": "^10.0.0",
+    "express": "^4.17.1",
+    "https": "^1.0.0",
+    "node-fetch": "^3.0.0",
+    "nodemon": "^2.0.14"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.15.8",
+    "@babel/plugin-transform-runtime": "^7.15.8",
+    "@babel/preset-env": "^7.15.8",
+    "@rollup/plugin-commonjs": "^21.0.1",
+    "@rollup/plugin-json": "^4.1.0",
+    "@rollup/plugin-node-resolve": "^13.0.6",
+    "@webpack-cli/generators": "^2.4.1",
+    "babel-loader": "^8.2.2",
+    "babel-plugin-transform-runtime": "^6.23.0",
+    "prettier": "^2.4.0",
+    "rollup-plugin-natives": "^0.7.5"
+  }
+}
