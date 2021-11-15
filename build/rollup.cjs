@@ -93195,6 +93195,128 @@ class DidVerifier {
     }
 }
 
+let API_URL = process.env.CERAMIC_URL || 'https://ceramic-clay.3boxlabs.com';
+console.log('API_URL', API_URL);
+const didVerifier = new DidVerifier(API_URL);
+
+function verify() {
+    return async function (req, res, next) {
+        let body = req.body;
+        let userIdSupplied = ('userid' in body);
+        let jwsSupplied = ('jws' in body);
+
+        if(jwsSupplied && userIdSupplied) {
+            let userid = body.userid;
+            let result = await didVerifier.verifyJWS(userid, body.jws);
+
+            if(result.success) {
+                next();
+            }
+            else {
+                let resp = {
+                    success: false,
+                    reason: result.reason,
+                    data: {}
+                };
+
+                let status = 500;
+
+                if(resp.reason === 'error-jws-mismatch') {
+                    status = 401;
+                }
+
+                res.status(status).send(resp);
+            }
+        }
+        else {
+            let reason = 'error-empty-userid';
+
+            if(userIdSupplied) {
+                reason = 'error-empty-jws';
+            }
+
+            let resp = {
+                success: false,
+                reason: reason,
+                data: {}
+            };
+
+            res.status(400).send(resp);
+        }
+    }
+}
+
+function corsOptionsDelegate(req, callback) {
+    let allowList= ['https://ceramic-explore-ben-razor.vercel.app', 'https://ceramic-explore.vercel.app', 'https://34.77.88.57'];
+    let host = req.hostname;
+
+    if(host.includes('localhost')) {
+        allowList = ['http://localhost', 'https://localhost'];
+    }
+
+    let origin = req.header('Origin');
+    let corsOptions;
+
+    if(origin) {
+        let originNoPort = origin.split(':').slice(0,2).join(':');
+
+        if (allowList.includes(originNoPort )) {
+            corsOptions = { origin: true }; // reflect (enable) the requested origin in the CORS response
+        } else {
+            corsOptions = { origin: false }; // disable CORS for this request
+        }
+    }
+    else {
+        corsOptions = { origin: true };
+    }
+    callback(null, corsOptions); // callback expects two parameters: error and options
+}
+
+function getErrorResponse(status, reason, data={}) {
+    let resp = {
+        success: false,
+        reason: reason,
+        data: data
+    };
+
+    return [status, resp];
+}
+
+function getSuccessResponse(data) {
+    let status = 200;
+    let resp = {
+        success: true,
+        reason: 'ok',
+        data: data
+    };
+    return [status, resp];
+}
+
+function handleDBResult(err, rows) {
+    let status = 200;
+    let success = true;
+    let reason = 'ok';
+    let data = [];
+
+    if(!err) {
+        data = rows;
+    }
+    else {
+        status = 500;
+        success = false;
+        reason = 'error-db:' + err.toString();
+        console.log(err);
+    }
+
+    let resp = {
+        success: success,
+        reason: reason,
+        data: data
+    };
+
+    return [ status, resp ];
+}
+
 const createTableSQL = {
     create_ratings_sql: `
         CREATE TABLE IF NOT EXISTS ratings (
@@ -93277,7 +93399,7 @@ class CeramicDB {
     constructor(db) {
         this.db = db;
 
-        db.transaction(() => {
+        let tx = db.transaction(() => {
             db.prepare(createTableSQL.create_ratings_sql).run();
             db.prepare(createTableSQL.create_models_sql).run();
             db.prepare(createTableSQL.create_schemas_sql).run();
@@ -93288,6 +93410,8 @@ class CeramicDB {
             db.prepare(createTableSQL.create_applications_sql).run();
             db.prepare(createTableSQL.create_application_models_sql).run();
         });
+
+        tx();
     }
 
     rate(userid, modelid, rating, comment, cb) {
@@ -93344,35 +93468,39 @@ class CeramicDB {
         let values = [modelid, version, author, keywords, readme, JSON.stringify(package_json)];
 
         try {
-            this.db.prepare(q).run(values);
+            let tx = this.db.transaction(() => {
+                this.db.prepare(q).run(values);
 
-            let qSchemas = `
-                INSERT OR REPLACE INTO schemas(schema_path, modelid, schema_name, schema_json)
-                VALUES (?, ?, ?, ?)
-            `;
-
-            let schema_tuples = [];
-            for(let schema of schemas) {
-                schema_tuples.push(
-                    [schema['path'], modelid, schema['name'], JSON.stringify(schema['schema_json'])]
-                );
-            }
-
-            this.db.prepare(qSchemas).run(schema_tuples.flat());
-
-            if(user_model_info) {
-                let qUserModels = `
-                    INSERT OR REPLACE INTO user_models(modelid, userid, npm_package, repo_url, status, last_updated)
-                    VALUES (?, ?, ?, ?, ?, datetime('now'))
+                let qSchemas = `
+                    INSERT OR REPLACE INTO schemas(schema_path, modelid, schema_name, schema_json)
+                    VALUES (?, ?, ?, ?)
                 `;
 
-                let valuesUserModel = [modelid, user_model_info['userid'], user_model_info['npm_package'], 
-                        user_model_info['repo_url'], user_model_info['status']];
-                
-                this.db.prepare(qUserModels).run(valuesUserModel);
-            }
+                let schema_tuples = [];
+                for(let schema of schemas) {
+                    schema_tuples.push(
+                        [schema['path'], modelid, schema['name'], JSON.stringify(schema['schema_json'])]
+                    );
+                }
 
-            cb('', modelid);
+                this.db.prepare(qSchemas).run(schema_tuples.flat());
+
+                if(user_model_info) {
+                    let qUserModels = `
+                        INSERT OR REPLACE INTO user_models(modelid, userid, npm_package, repo_url, status, last_updated)
+                        VALUES (?, ?, ?, ?, ?, datetime('now'))
+                    `;
+
+                    let valuesUserModel = [modelid, user_model_info['userid'], user_model_info['npm_package'], 
+                            user_model_info['repo_url'], user_model_info['status']];
+                    
+                    this.db.prepare(qUserModels).run(valuesUserModel);
+                }
+
+                cb('', modelid);
+            });
+            
+            tx();
         }
         catch(err) {
             cb(err);
@@ -93541,13 +93669,11 @@ class CeramicDB {
             VALUES (?, ?, ?, ?, ?, datetime('now'))
         `;
 
-        console.log('in add app');
         try {
-            this.db.transaction(() => {
+            let tx = this.db.transaction(() => {
                 let info = this.db.prepare(q).run([name, image_url, description, userid, app_url]);
 
                 let applicationId = info.lastInsertRowid;
-                console.log('inserted application: ', applicationId);
 
                 let q2 = `
                     INSERT INTO application_models(application_id, modelid)
@@ -93559,14 +93685,14 @@ class CeramicDB {
                     appModels = appModels.concat( [applicationId, modelId] );
                 }
 
-                db.prepare(q2).run(appModels);
+                this.db.prepare(q2).run(appModels);
                 cb();
             });
+            tx();
         }
         catch(err) {
             cb(err);
         }
-
     }
 }
 
@@ -100748,136 +100874,13 @@ if(key && cert) {
 }
 
 app.use(express.json());
-
-var corsOptionsDelegate = function (req, callback) {
-    let allowList= ['https://ceramic-explore-ben-razor.vercel.app', 'https://ceramic-explore.vercel.app', 'https://34.77.88.57'];
-    let host = req.hostname;
-
-    if(host.includes('localhost')) {
-        allowList = ['http://localhost', 'https://localhost'];
-    }
-
-    let origin = req.header('Origin');
-    let corsOptions;
-
-    if(origin) {
-        let originNoPort = origin.split(':').slice(0,2).join(':');
-
-        if (allowList.includes(originNoPort )) {
-            corsOptions = { origin: true }; // reflect (enable) the requested origin in the CORS response
-        } else {
-            corsOptions = { origin: false }; // disable CORS for this request
-        }
-    }
-    else {
-        corsOptions = { origin: true };
-    }
-    callback(null, corsOptions); // callback expects two parameters: error and options
-};
-
 app.use(cors(corsOptionsDelegate));
 
 const __dirname$1 = new Url$1.URL('.', (typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('rollup.cjs', document.baseURI).href))).pathname;
 let dbFile = process.env.DB_FILE || __dirname$1 + 'db/ceramic_models.db';
 console.log('dbFile', dbFile);
-let db$1 = new sqlite3(dbFile);
-let cdb = new CeramicDB(db$1);
-
-let API_URL = process.env.CERAMIC_URL || 'https://ceramic-clay.3boxlabs.com';
-console.log('API_URL', API_URL);
-const didVerifier = new DidVerifier(API_URL);
-
-const verify = () => {
-    return async function (req, res, next) {
-        let body = req.body;
-        let userIdSupplied = ('userid' in body);
-        let jwsSupplied = ('jws' in body);
-
-        if(jwsSupplied && userIdSupplied) {
-            let userid = body.userid;
-            let result = await didVerifier.verifyJWS(userid, body.jws);
-
-            if(result.success) {
-                next();
-            }
-            else {
-                let resp = {
-                    success: false,
-                    reason: result.reason,
-                    data: {}
-                };
-
-                let status = 500;
-
-                if(resp.reason === 'error-jws-mismatch') {
-                    status = 401;
-                }
-
-                res.status(status).send(resp);
-            }
-        }
-        else {
-            let reason = 'error-empty-userid';
-
-            if(userIdSupplied) {
-                reason = 'error-empty-jws';
-            }
-
-            let resp = {
-                success: false,
-                reason: reason,
-                data: {}
-            };
-
-            res.status(400).send(resp);
-        }
-    }
-};
-
-function handleDBResult(err, rows) {
-    let status = 200;
-    let success = true;
-    let reason = 'ok';
-    let data = [];
-
-    if(!err) {
-        data = rows;
-    }
-    else {
-        status = 500;
-        success = false;
-        reason = 'error-db:' + err.toString();
-        console.log(err);
-    }
-
-    let resp = {
-        success: success,
-        reason: reason,
-        data: data
-    };
-
-    return [ status, resp ];
-}
-
-function getErrorResponse(status, reason, data={}) {
-    let resp = {
-        success: false,
-        reason: reason,
-        data: data
-    };
-
-    return [status, resp];
-}
-
-function getSuccessResponse(data) {
-    let status = 200;
-    let resp = {
-        success: true,
-        reason: 'ok',
-        data: data
-    };
-    return [status, resp];
-}
+let db = new sqlite3(dbFile);
+let cdb = new CeramicDB(db);
 
 app.get('/', async (req, res) => {
     res.send('Johnny 5 is alive!');
@@ -101226,6 +101229,7 @@ app.post('/api/stats', async(req, res) => {
     let body = req.body;
     let modelIdSupplied = 'modelid' in body;
     let packageIdSupplied = 'packageid' in body;
+    let reason = 'ok';
 
     if(modelIdSupplied && packageIdSupplied) {
         let modelid = body.modelid.trim();
@@ -101462,7 +101466,7 @@ app.post('/api/applications', verify(), async(req, res) => {
             if(err) {
                 let [status, resp] = getErrorResponse(500, 'error-db-error');
                 res.status(status).json(resp);
-                console.log(e);
+                console.log(err);
             }
             else {
                 let data = {'add app: ': [name, imageURL, description, userId, appURL, dataModelIds]};
@@ -101494,5 +101498,5 @@ app.post('/api/applications', verify(), async(req, res) => {
 });
 
 https__default["default"].createServer(options, app).listen(port, () => {
-    console.log(`Ceramic data model app listening on ${port}`);
+    console.log(`ExpressJS server listening on ${port}`);
 });

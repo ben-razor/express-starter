@@ -3,7 +3,9 @@ import express from 'express';
 import https from 'https';
 import fs from 'fs';
 import cors from 'cors';
-import DidVerifier from './did_verifier.js';
+import { verify } from '../lib/identity/did/did_middleware';
+import { corsOptionsDelegate } from '../lib/cors/cors';
+import { getSuccessResponse, getErrorResponse, handleDBResult } from '../lib/http/helpers';
 import CeramicDB from './ceramic_db.js';
 import ApiNPM from '../lib/ApiNPM.js';
 import sqlite3 from 'better-sqlite3';
@@ -30,33 +32,6 @@ if(key && cert) {
 }
 
 app.use(express.json());
-
-var corsOptionsDelegate = function (req, callback) {
-    let allowList= ['https://ceramic-explore-ben-razor.vercel.app', 'https://ceramic-explore.vercel.app', 'https://34.77.88.57']
-    let host = req.hostname;
-
-    if(host.includes('localhost')) {
-        allowList = ['http://localhost', 'https://localhost'];
-    }
-
-    let origin = req.header('Origin');
-    let corsOptions;
-
-    if(origin) {
-        let originNoPort = origin.split(':').slice(0,2).join(':')
-
-        if (allowList.includes(originNoPort )) {
-            corsOptions = { origin: true } // reflect (enable) the requested origin in the CORS response
-        } else {
-            corsOptions = { origin: false } // disable CORS for this request
-        }
-    }
-    else {
-        corsOptions = { origin: true };
-    }
-    callback(null, corsOptions) // callback expects two parameters: error and options
-}
-
 app.use(cors(corsOptionsDelegate));
 
 const __dirname = new URL('.', import.meta.url).pathname;
@@ -64,107 +39,6 @@ let dbFile = process.env.DB_FILE || __dirname + 'db/ceramic_models.db';
 console.log('dbFile', dbFile);
 let db = new sqlite3(dbFile);
 let cdb = new CeramicDB(db);
-
-const testDid = 'did:3:kjzl6cwe1jw146h55xwym8jxgbn1rd86k2km1p5q06u19wa3y5ob9948k9pq22n';
-const jwsJson = `
-{"payload":"eyJoZWxsbyI6IndvcmxkIn0","signatures":[{"protected":"eyJraWQiOiJkaWQ6MzpranpsNmN3ZTFqdzE0Nmg1NXh3eW04anhnYm4xcmQ4Nmsya20xcDVxMDZ1MTl3YTN5NW9iOTk0OGs5cHEyMm4_dmVyc2lvbi1pZD0wI1p5VnVaM1pzaGhiWTVKVSIsImFsZyI6IkVTMjU2SyJ9","signature":"6xDEp_x7WLCsSp7NvWJBCxXpDRbYZMlGpWRZgyQaY05ki1NqZWy9yWbdj4oAITck2OOWviIACq-rC2VQe8s2hw"}]}
-`;
-
-let API_URL = process.env.CERAMIC_URL || 'https://ceramic-clay.3boxlabs.com';
-console.log('API_URL', API_URL);
-const didVerifier = new DidVerifier(API_URL);
-
-const verify = () => {
-    return async function (req, res, next) {
-        let body = req.body;
-        let userIdSupplied = ('userid' in body);
-        let jwsSupplied = ('jws' in body);
-
-        if(jwsSupplied && userIdSupplied) {
-            let userid = body.userid;
-            let result = await didVerifier.verifyJWS(userid, body.jws);
-
-            if(result.success) {
-                next()
-            }
-            else {
-                let resp = {
-                    success: false,
-                    reason: result.reason,
-                    data: {}
-                }
-
-                let status = 500;
-
-                if(resp.reason === 'error-jws-mismatch') {
-                    status = 401;
-                }
-
-                res.status(status).send(resp)
-            }
-        }
-        else {
-            let reason = 'error-empty-userid';
-
-            if(userIdSupplied) {
-                reason = 'error-empty-jws';
-            }
-
-            let resp = {
-                success: false,
-                reason: reason,
-                data: {}
-            }
-
-            res.status(400).send(resp)
-        }
-    }
-}
-
-function handleDBResult(err, rows) {
-    let status = 200;
-    let success = true;
-    let reason = 'ok';
-    let data = [];
-
-    if(!err) {
-        data = rows;
-    }
-    else {
-        status = 500;
-        success = false;
-        reason = 'error-db:' + err.toString();
-        console.log(err);
-    }
-
-    let resp = {
-        success: success,
-        reason: reason,
-        data: data
-    }
-
-    return [ status, resp ];
-}
-
-function getErrorResponse(status, reason, data={}) {
-    let resp = {
-        success: false,
-        reason: reason,
-        data: data
-    }
-
-    return [status, resp];
-}
-
-function getSuccessResponse(data) {
-    let status = 200;
-    let resp = {
-        success: true,
-        reason: 'ok',
-        data: data
-    }
-    return [status, resp];
-}
 
 app.get('/', async (req, res) => {
     res.send('Johnny 5 is alive!');
@@ -783,5 +657,5 @@ app.post('/api/applications', verify(), async(req, res) => {
 })
 
 https.createServer(options, app).listen(port, () => {
-    console.log(`Ceramic data model app listening on ${port}`)
+    console.log(`ExpressJS server listening on ${port}`)
 });
